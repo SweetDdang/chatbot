@@ -14,6 +14,8 @@ import uuid
 import requests
 import streamlit as st
 
+API_URL = "https://zany-potato-rx7wxvqj577fxqqw-8000.app.github.dev"
+
 st.set_page_config(
     page_title="Advanced RAG Chatbot",
     page_icon="🧠",
@@ -31,15 +33,15 @@ if "pending_question" not in st.session_state:
     st.session_state.pending_question = ""
 
 
-def post_chat(api_url: str, payload: dict) -> dict:
-    res = requests.post(f"{api_url}/chat", json=payload, timeout=600)
+def post_chat(payload: dict) -> dict:
+    res = requests.post(f"{API_URL}/chat", json=payload, timeout=600)
     res.raise_for_status()
     return res.json()
 
 
-def reset_local_and_server(api_url: str) -> None:
+def reset_local_and_server() -> None:
     try:
-        requests.post(f"{api_url}/reset-session/{st.session_state.session_id}", timeout=30)
+        requests.post(f"{API_URL}/reset-session/{st.session_state.session_id}", timeout=30)
     except Exception:
         pass
     st.session_state.messages = []
@@ -50,7 +52,7 @@ def reset_local_and_server(api_url: str) -> None:
 with st.sidebar:
     st.header("⚙️ 설정")
 
-    api_url = st.text_input("FastAPI URL", value="http://localhost:8000")
+    st.caption(f"FastAPI: `{API_URL}`")
     backend = st.radio("LLM Backend", ["gpt", "ollama"], index=0)
 
     openai_api_key = None
@@ -89,7 +91,7 @@ with st.sidebar:
         files = {"file": (uploaded_pdf.name, uploaded_pdf.getvalue(), "application/pdf")}
         with st.spinner("PDF 업로드 및 인덱싱 중..."):
             try:
-                res = requests.post(f"{api_url}/upload", files=files, timeout=600)
+                res = requests.post(f"{API_URL}/upload", files=files, timeout=600)
                 res.raise_for_status()
                 data = res.json()
                 st.success(f"인덱싱 완료: {data.get('chunk_count')} chunks")
@@ -103,7 +105,7 @@ with st.sidebar:
     with col1:
         if st.button("API 상태", use_container_width=True):
             try:
-                health = requests.get(f"{api_url}/health", timeout=120)
+                health = requests.get(f"{API_URL}/health", timeout=120)
                 health.raise_for_status()
                 st.json(health.json())
             except Exception as e:
@@ -111,7 +113,7 @@ with st.sidebar:
 
     with col2:
         if st.button("대화 초기화", use_container_width=True):
-            reset_local_and_server(api_url)
+            reset_local_and_server()
             st.rerun()
 
     st.divider()
@@ -205,7 +207,7 @@ if submitted:
 
     with st.spinner("라우팅 → 검색 → 재랭킹 → 답변 생성 중..."):
         try:
-            result = post_chat(api_url, payload)
+            result = post_chat(payload)
         except Exception as e:
             st.session_state.messages.append({
                 "role": "assistant",
