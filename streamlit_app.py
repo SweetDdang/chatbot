@@ -10,7 +10,14 @@ Run:
     streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0
 """
 
+import os
+import sys
+import time
 import uuid
+import socket
+import subprocess
+from pathlib import Path
+
 import requests
 import streamlit as st
 
@@ -22,6 +29,82 @@ st.set_page_config(
 
 st.title("🧠 Advanced RAG Chatbot")
 st.caption("FastAPI + Streamlit · Intent Routing · Multi-turn · Edge-case Guard · Hybrid Search · RRF · Rerank · Self-RAG")
+
+# Streamlit Cloud에서는 터미널에서 uvicorn을 따로 띄울 수 없으므로
+# Streamlit 프로세스가 FastAPI를 내부 subprocess로 자동 실행한다.
+API_URL = "http://127.0.0.1:8000"
+
+
+def apply_secrets_to_env() -> None:
+    """Streamlit Cloud Secrets 값을 FastAPI subprocess 환경변수로 전달한다."""
+    for key in ["OPENAI_API_KEY", "OPENAI_MODEL", "RAG_DATA_DIR", "RAG_DB_DIR", "RAG_EMBEDDING_MODEL", "RAG_RERANKER_MODEL"]:
+        try:
+            value = st.secrets.get(key)
+        except Exception:
+            value = None
+        if value:
+            os.environ[key] = str(value)
+
+
+def is_fastapi_alive() -> bool:
+    try:
+        r = requests.get(f"{API_URL}/health", timeout=3)
+        return r.status_code < 500
+    except Exception:
+        return False
+
+
+def is_port_open(host: str = "127.0.0.1", port: int = 8000) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=1):
+            return True
+    except OSError:
+        return False
+
+
+def start_fastapi_if_needed() -> None:
+    apply_secrets_to_env()
+
+    if is_fastapi_alive() or is_port_open("127.0.0.1", 8000):
+        return
+
+    if not Path("backend_main.py").exists():
+        st.error("backend_main.py 파일이 없어서 FastAPI를 실행할 수 없습니다.")
+        st.stop()
+
+    log = open("fastapi_backend.log", "a", encoding="utf-8")
+    subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "uvicorn",
+            "backend_main:app",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            "8000",
+        ],
+        stdout=log,
+        stderr=log,
+        env=os.environ.copy(),
+        start_new_session=True,
+    )
+
+    for _ in range(60):
+        if is_fastapi_alive() or is_port_open("127.0.0.1", 8000):
+            return
+        time.sleep(0.5)
+
+    st.error("FastAPI 자동 실행 실패. fastapi_backend.log를 확인하세요.")
+    try:
+        st.code(Path("fastapi_backend.log").read_text(encoding="utf-8")[-4000:])
+    except Exception:
+        pass
+    st.stop()
+
+
+start_fastapi_if_needed()
+
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -50,12 +133,12 @@ def reset_local_and_server(api_url: str) -> None:
 with st.sidebar:
     st.header("⚙️ 설정")
 
-    api_url = "http://127.0.0.1:8000"
+    api_url = API_URL
     backend = st.radio("LLM Backend", ["gpt", "ollama"], index=0)
 
     openai_api_key = None
     gpt_model = "gpt-4o-mini"
-    st.caption("FastAPI URL과 GPT API Key는 배포/서버 설정에서 관리합니다.")
+    st.caption("FastAPI는 Streamlit Cloud 내부에서 자동 실행됩니다. API Key는 Streamlit Secrets에서 읽습니다.")
 
     final_top_k = st.slider("최종 근거 개수", min_value=1, max_value=10, value=5)
     use_memory = st.toggle("멀티턴 메모리 사용", value=True)
@@ -189,7 +272,11 @@ if submitted:
         except Exception as e:
             st.session_state.messages.append({
                 "role": "assistant",
-                "content": f"요청 실패: {e}",
+                "content": (
+                    f"요청 실패: {e}\n\n"
+                    "FastAPI 자동 실행 로그는 fastapi_backend.log를 확인하세요. "
+                    "Streamlit Cloud에서는 Secrets에 OPENAI_API_KEY도 등록해야 GPT 답변이 생성됩니다."
+                ),
                 "meta": {"intent": "error", "latency": "-", "retrieval": "-", "source_count": 0},
             })
             st.rerun()
