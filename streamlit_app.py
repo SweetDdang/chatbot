@@ -136,9 +136,31 @@ with st.sidebar:
     api_url = API_URL
     backend = st.radio("LLM Backend", ["gpt", "ollama"], index=0)
 
-    openai_api_key = None
+    st.subheader("🔑 GPT API 설정")
+    st.caption(
+        "GPT를 사용할 경우 API Key를 이 화면에서 입력하세요. "
+        "입력한 키는 현재 Streamlit 세션에서만 사용하고 서버에 저장하지 않습니다."
+    )
+
+    openai_api_key = ""
     gpt_model = "gpt-4o-mini"
-    st.caption("FastAPI는 Streamlit Cloud 내부에서 자동 실행됩니다. API Key는 Streamlit Secrets에서 읽습니다.")
+
+    if backend == "gpt":
+        openai_api_key = st.text_input(
+            "OpenAI API Key",
+            type="password",
+            placeholder="sk-...",
+            help="FastAPI /chat 요청의 openai_api_key 필드로만 전달됩니다.",
+        ).strip()
+
+        gpt_model = st.selectbox(
+            "GPT 모델",
+            options=["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1"],
+            index=0,
+            help="백엔드 ChatRequest.gpt_model로 전달됩니다.",
+        )
+    else:
+        st.info("Ollama 백엔드는 로컬 Ollama 모델을 사용하므로 OpenAI API Key가 필요 없습니다.")
 
     final_top_k = st.slider("최종 근거 개수", min_value=1, max_value=10, value=5)
     use_memory = st.toggle("멀티턴 메모리 사용", value=True)
@@ -252,6 +274,14 @@ if submitted:
     st.session_state.pending_question = ""
     question = (question or "").strip()
 
+    if not question:
+        st.warning("질문을 입력하세요.")
+        st.stop()
+
+    if backend == "gpt" and not openai_api_key:
+        st.warning("GPT 백엔드를 사용하려면 왼쪽 사이드바에 OpenAI API Key를 입력하세요.")
+        st.stop()
+
     st.session_state.messages.append({"role": "user", "content": question})
 
     payload = {
@@ -265,6 +295,7 @@ if submitted:
 
     if backend == "gpt":
         payload["gpt_model"] = gpt_model
+        payload["openai_api_key"] = openai_api_key
 
     with st.spinner("라우팅 → 검색 → 재랭킹 → 답변 생성 중..."):
         try:
@@ -275,7 +306,7 @@ if submitted:
                 "content": (
                     f"요청 실패: {e}\n\n"
                     "FastAPI 자동 실행 로그는 fastapi_backend.log를 확인하세요. "
-                    "Streamlit Cloud에서는 Secrets에 OPENAI_API_KEY도 등록해야 GPT 답변이 생성됩니다."
+                    "GPT 백엔드를 사용하는 경우 왼쪽 사이드바에 OpenAI API Key를 입력해야 답변이 생성됩니다."
                 ),
                 "meta": {"intent": "error", "latency": "-", "retrieval": "-", "source_count": 0},
             })
