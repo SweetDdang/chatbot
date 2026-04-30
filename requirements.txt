@@ -1,2 +1,15 @@
+fastapi
+uvicorn[standard]
 streamlit
+requests
+python-multipart
+pydantic
+chromadb
+pysqlite3-binary
+sentence-transformers
+rank-bm25
+pypdf
 openai
+pandas
+numpy
+scikit-learn
